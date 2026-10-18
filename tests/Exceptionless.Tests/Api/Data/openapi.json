@@ -1732,7 +1732,7 @@
             }
           },
           "401": {
-            "description": "Sign-in failed",
+            "description": "Unauthorized",
             "content": {
               "application/problem\u002Bjson": {
                 "schema": {
@@ -1797,7 +1797,7 @@
             }
           },
           "401": {
-            "description": "Sign-in failed",
+            "description": "Unauthorized",
             "content": {
               "application/problem\u002Bjson": {
                 "schema": {
@@ -1862,7 +1862,7 @@
             }
           },
           "401": {
-            "description": "Sign-in failed",
+            "description": "Unauthorized",
             "content": {
               "application/problem\u002Bjson": {
                 "schema": {
@@ -1927,7 +1927,7 @@
             }
           },
           "401": {
-            "description": "Sign-in failed",
+            "description": "Unauthorized",
             "content": {
               "application/problem\u002Bjson": {
                 "schema": {
