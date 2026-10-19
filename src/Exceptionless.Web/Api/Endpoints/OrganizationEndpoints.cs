@@ -191,6 +191,7 @@ public static class OrganizationEndpoints
         .Produces<WorkInProgressResult>(StatusCodes.Status202Accepted)
         .ProducesProblem(StatusCodes.Status400BadRequest)
         .ProducesProblem(StatusCodes.Status404NotFound)
+        .ProducesProblem(StatusCodes.Status409Conflict)
         .ProducesProblem(StatusCodes.Status500InternalServerError)
         .WithSummary("Remove")
         .WithMetadata(new EndpointDocumentation {

@@ -60,6 +60,7 @@ public sealed class OpenApiSnapshotTests : IClassFixture<AppWebHostFactory>
 
         foreach (var (path, method) in new[] {
             ("/api/v2/organizations", "post"),
+            ("/api/v2/organizations/{ids}", "delete"),
             ("/api/v2/organizations/{id}/users/{email}", "post"),
             ("/api/v2/organizations/{id}/users/{email}", "delete"),
             ("/api/v2/auth/login", "post"),
