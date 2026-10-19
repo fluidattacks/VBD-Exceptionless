@@ -22,6 +22,7 @@ using Exceptionless.Web.Security;
 using FluentRest;
 using Foundatio.Queues;
 using Foundatio.Repositories;
+using Foundatio.Repositories.Exceptions;
 using Foundatio.Repositories.Utility;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Http;
@@ -1394,6 +1395,8 @@ public class AuthEndpointTests : IntegrationTestsBase
         Assert.NotNull(login);
         var oldToken = await _tokenRepository.GetByIdAsync(login.Token, o => o.Cache(false));
         Assert.NotNull(oldToken);
+        var staleUser = await _userRepository.GetByIdAsync(oldToken.UserId!, o => o.Cache(false));
+        Assert.NotNull(staleUser);
         await SendRequestAsync(r => r.BearerToken(login.Token).AppendPath("users/me").StatusCodeShouldBeOk());
 
         // Act
@@ -1407,11 +1410,15 @@ public class AuthEndpointTests : IntegrationTestsBase
         // Assert
         Assert.NotNull(changed);
         Assert.NotEqual(login.Token, changed.Token);
+        staleUser.FullName = "Stale profile update";
+        await Assert.ThrowsAsync<VersionConflictDocumentException>(() => _userRepository.SaveAsync(staleUser));
         await SendRequestAsync(r => r.BearerToken(login.Token).AppendPath("users/me").StatusCodeShouldBeUnauthorized());
         await SendRequestAsync(r => r.BearerToken(changed.Token).AppendPath("users/me").StatusCodeShouldBeOk());
         await SendRequestAsync(r => r.BasicAuthorization("client", login.Token).AppendPath("users/me").StatusCodeShouldBeUnauthorized());
         var user = await _userRepository.GetByEmailAddressAsync(SampleDataService.TEST_USER_EMAIL);
         Assert.NotNull(user);
+        Assert.True(user.IsCorrectPassword(newPassword));
+        Assert.False(user.IsCorrectPassword(SampleDataService.TEST_USER_PASSWORD));
         Assert.False(String.IsNullOrEmpty(user.AuthenticationVersion));
         Assert.Equal(user.AuthenticationVersion, (await _tokenRepository.GetByIdAsync(changed.Token))!.AuthenticationVersion);
     }
@@ -2153,6 +2160,87 @@ public class AuthEndpointTests : IntegrationTestsBase
         Assert.NotNull(storedCurrentUser);
         Assert.Equal(originalAccounts, storedCurrentUser.OAuthAccounts.Select(account => (account.Provider, account.ProviderUserId, account.Username)));
         Assert.Equal(originalTokenCount, (await _tokenRepository.CountAsync()).Total);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ExternalLogin_InterruptedTransfer_CompletesTransferAndKeepsPreviousSessionRevoked(bool destinationCommitted)
+    {
+        // Arrange
+        const string code = "github-failed-transfer";
+        var owner = await _userRepository.GetByEmailAddressAsync(SampleDataService.TEST_USER_EMAIL);
+        var destination = await _userRepository.GetByEmailAddressAsync(SampleDataService.TEST_ORG_USER_EMAIL);
+        Assert.NotNull(owner);
+        Assert.NotNull(destination);
+        owner.AddOAuthAccount("github", code, owner.EmailAddress);
+        await _userRepository.SaveAsync(owner);
+        var login = await SendRequestAsAsync<TokenResult>(request => request.Post().AppendPath("auth/login")
+            .Content(new Login { Email = owner.EmailAddress, Password = SampleDataService.TEST_USER_PASSWORD })
+            .StatusCodeShouldBeOk());
+        Assert.NotNull(login);
+        owner.OAuthAccounts.Clear();
+        owner.AuthenticationVersion = StringExtensions.GetNewToken();
+        await _userRepository.SaveAsync(owner);
+        if (destinationCommitted)
+        {
+            destination.AddOAuthAccount("github", code, owner.EmailAddress);
+            await _userRepository.SaveAsync(destination);
+        }
+
+        var authInfo = new ExternalAuthInfo { ClientId = "client-id", Code = code, RedirectUri = "http://localhost/callback" };
+
+        // Act
+        var retry = await SendRequestAsAsync<TokenResult>(request => request.Post().AsTestOrganizationUser().AppendPaths("auth", "github")
+            .Content(authInfo).StatusCodeShouldBeOk());
+
+        // Assert
+        var storedOwner = await _userRepository.GetByIdAsync(owner.Id);
+        Assert.NotNull(storedOwner);
+        Assert.DoesNotContain(storedOwner.OAuthAccounts, account => account.Provider == "github" && account.ProviderUserId == code);
+        Assert.Equal(owner.AuthenticationVersion, storedOwner.AuthenticationVersion);
+        Assert.NotNull(retry);
+        var matchingUser = await _userRepository.GetUserByOAuthProviderAsync("github", code, TestCancellationToken);
+        Assert.NotNull(matchingUser);
+        Assert.Equal(destination.Id, matchingUser.Id);
+        await SendRequestAsync(request => request.BearerToken(login.Token).AppendPath("users/me").StatusCodeShouldBeUnauthorized());
+    }
+
+    [Fact]
+    public async Task ForgotPassword_ConcurrentUserUpdate_MatchesUnknownEmailResponse()
+    {
+        // Arrange
+        var user = await _userRepository.GetByEmailAddressAsync(SampleDataService.TEST_USER_EMAIL);
+        Assert.NotNull(user);
+        var mailQueue = GetService<IQueue<MailMessage>>();
+        long enqueued = (await mailQueue.GetQueueStatsAsync()).Enqueued;
+        bool changed = false;
+        using var subscription = _userRepository.DocumentsSaving.AddHandler(async (_, args) =>
+        {
+            if (changed || !args.Documents.Any(document => document.Value.Id == user.Id))
+                return;
+
+            changed = true;
+            var current = await _userRepository.GetByIdAsync(user.Id, options => options.Cache(false));
+            Assert.NotNull(current);
+            current.FullName = "Concurrent profile update";
+            await _userRepository.SaveAsync(current);
+        });
+
+        // Act
+        var known = await SendRequestAsync(request => request.AppendPaths("auth", "forgot-password", user.EmailAddress).StatusCodeShouldBeOk());
+        var unknown = await SendRequestAsync(request => request.AppendPaths("auth", "forgot-password", "unknown@localhost.test").StatusCodeShouldBeOk());
+        var persisted = await _userRepository.GetByIdAsync(user.Id, options => options.Cache(false));
+
+        // Assert
+        Assert.True(changed);
+        Assert.Equal(HttpStatusCode.OK, known.StatusCode);
+        Assert.Equal(unknown.StatusCode, known.StatusCode);
+        Assert.Equal(await unknown.Content.ReadAsStringAsync(TestCancellationToken), await known.Content.ReadAsStringAsync(TestCancellationToken));
+        Assert.NotNull(persisted);
+        Assert.Equal("Concurrent profile update", persisted.FullName);
+        Assert.Equal(user.PasswordResetToken, persisted.PasswordResetToken);
+        Assert.Equal(enqueued, (await mailQueue.GetQueueStatsAsync()).Enqueued);
     }
 
     [Theory]
