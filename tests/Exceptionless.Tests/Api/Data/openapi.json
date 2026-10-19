@@ -14371,7 +14371,6 @@
           "email_notifications_enabled",
           "is_email_address_verified",
           "verify_email_address_token_expiration",
-          "version",
           "is_active",
           "roles",
           "created_utc",
@@ -14483,8 +14482,11 @@
             "format": "date-time"
           },
           "version": {
-            "type": "string",
-            "description": "Repository concurrency metadata used to reject stale writes, preserved in cached snapshots."
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "Repository concurrency metadata used to reject stale writes, preserved in cached snapshots.\nUnsaved users do not have a document version."
           },
           "is_active": {
             "type": "boolean",

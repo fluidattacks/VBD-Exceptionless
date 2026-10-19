@@ -133,6 +133,9 @@ public sealed class OpenApiSnapshotTests : IClassFixture<AppWebHostFactory>
         Assert.True(schemas.TryGetProperty("RecordProductTourResult", out var recordProductTourResult));
         Assert.Equal("recorded_utc", Assert.Single(recordProductTourResult.GetProperty("properties").EnumerateObject()).Name);
         Assert.True(schemas.TryGetProperty("ViewOrganization", out _));
+        var user = schemas.GetProperty("User");
+        Assert.DoesNotContain(user.GetProperty("required").EnumerateArray(), property => property.GetString() == "version");
+        Assert.Contains(user.GetProperty("properties").GetProperty("version").GetProperty("type").EnumerateArray(), type => type.GetString() == "null");
 
         var savedViewColumnProperties = savedViewColumnSettings.GetProperty("properties");
         Assert.Equal("boolean", savedViewColumnProperties.GetProperty("auto_fill").GetProperty("type")[1].GetString());

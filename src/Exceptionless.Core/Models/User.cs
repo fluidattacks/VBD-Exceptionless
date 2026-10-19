@@ -56,8 +56,15 @@ public record User : IIdentity, IHaveDates, IVersioned, IValidatableObject
 
     /// <summary>
     /// Repository concurrency metadata used to reject stale writes, preserved in cached snapshots.
+    /// Unsaved users do not have a document version.
     /// </summary>
-    public string Version { get; set; } = null!;
+    public string? Version { get; set; }
+
+    string IVersioned.Version
+    {
+        get => Version!;
+        set => Version = value;
+    }
 
     /// <summary>
     /// Gets or sets the users active state.
