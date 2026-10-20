@@ -3,12 +3,14 @@ using System.Net.Http.Json;
 using System.Text;
 using Exceptionless.Core.Extensions;
 using Exceptionless.Core.Repositories;
+using Exceptionless.Core.Repositories.Configuration;
 using Exceptionless.Core.Models;
 using Exceptionless.Tests.Utility;
 using Exceptionless.Core.Services;
 using Exceptionless.Core.Utility;
 using Exceptionless.Web.Models;
 using Foundatio.Repositories;
+using Foundatio.Caching;
 using Foundatio.Repositories.Models;
 using Xunit;
 
@@ -120,6 +122,35 @@ public sealed class ExternalAccountConcurrencyTests : IntegrationTestsBase
         Assert.IsAssignableFrom<OperationCanceledException>(exception);
         Assert.NotNull(nextResult);
         Assert.NotNull(await _tokens.GetByIdAsync(nextResult.Token));
+    }
+
+    [Fact]
+    public async Task ExternalLogin_StaleCachedEmailMiss_LinksStoredUserWithoutCreatingDuplicate()
+    {
+        // Arrange
+        const string code = "external-account-stale-email-miss";
+        var user = new User { FullName = "Existing email owner", EmailAddress = TestOAuthProviderClient.GetEmailAddress(code) };
+        user.MarkEmailAddressVerified();
+        await _users.AddAsync(user, options => options.ImmediateConsistency());
+        var cache = new ScopedCacheClient(GetService<ExceptionlessElasticConfiguration>().Cache, nameof(User));
+        await cache.SetAsync<ICollection<FindHit<User>>>($"Email:{user.EmailAddress}", []);
+        var staleEmailLookup = await _users.GetByEmailAddressAsync(user.EmailAddress);
+        long originalUserCount = (await _users.CountAsync()).Total;
+        using var client = _server.CreateClient();
+
+        // Act
+        var result = await SendExternalLoginAsync(client, code);
+
+        // Assert
+        Assert.Null(staleEmailLookup);
+        Assert.NotNull(result);
+        var token = await _tokens.GetByIdAsync(result.Token);
+        Assert.NotNull(token);
+        Assert.Equal(user.Id, token.UserId);
+        Assert.Equal(originalUserCount, (await _users.CountAsync()).Total);
+        var storedUser = await _users.GetByIdAsync(user.Id, options => options.Cache(false));
+        Assert.NotNull(storedUser);
+        Assert.Single(storedUser.OAuthAccounts, account => account.Provider == "github" && account.ProviderUserId == code);
     }
 
     [Fact]

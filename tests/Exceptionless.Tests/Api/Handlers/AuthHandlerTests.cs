@@ -146,7 +146,7 @@ public sealed class AuthHandlerTests : TestWithServices
 
         // Act
         var result = unlink
-            ? await handler.Handle(new RemoveExternalLogin("github", new ValueFromBody<string>("locked-account"), context))
+            ? await handler.Handle(new RemoveExternalLogin("github", "locked-account", context))
             : await handler.Handle(new GitHubLogin(new ExternalAuthInfo(), context));
 
         // Assert
