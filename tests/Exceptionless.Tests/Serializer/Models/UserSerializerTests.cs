@@ -233,7 +233,7 @@ public class UserSerializerTests : TestWithServices
         Assert.NotNull(user);
         Assert.Equal("user-from-cache", user.Id);
         Assert.Null(user.AuthenticationVersion);
-        Assert.Null(user.Version);
+        Assert.Empty(user.Version);
         Assert.Equal(2, user.OrganizationIds.Count);
         Assert.Contains("cached-org-1", user.OrganizationIds);
         Assert.Contains("cached-org-2", user.OrganizationIds);
@@ -263,11 +263,14 @@ public class UserSerializerTests : TestWithServices
         // Act
         string? json = _serializer.SerializeToString(original);
 
+        using var document = JsonDocument.Parse(json!);
+        string productToursJson = document.RootElement.GetProperty("product_tours").GetRawText();
+
         // Assert
         Assert.Contains("\"product_tours\":{\"app_overview\":\"2024-01-15T12:00:00Z\",\"future_guide_v2\":\"2024-01-15T12:01:00Z\"}", json);
-        Assert.DoesNotContain("status", json, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("version", json, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("event_investigate", json, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("status", productToursJson, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("version", productToursJson, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("event_investigate", productToursJson, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
